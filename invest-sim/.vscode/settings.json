@@ -1,0 +1,55 @@
+{
+    // Python 解释器配置 - 指向虚拟环境
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    
+    // Python 测试配置
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    
+    // Python 代码格式化（可选，如果安装了格式化工具）
+    "python.formatting.provider": "none",
+    "editor.formatOnSave": false,
+    
+    // Python 代码分析
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticMode": "workspace",
+    
+    // 文件关联
+    "files.associations": {
+        "*.json": "jsonc"
+    },
+    
+    // 终端配置 - 自动激活虚拟环境
+    "terminal.integrated.env.windows": {
+        "PYTHONPATH": "${workspaceFolder}"
+    },
+    
+    // 排除文件
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/.pytest_cache": true,
+        "**/.mypy_cache": true
+    },
+    
+    // 搜索排除
+    "search.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/.venv": true,
+        "**/node_modules": true,
+        "**/.pytest_cache": true,
+        "**/.mypy_cache": true,
+        "**/invest_sim.egg-info": true
+    }
+}
+
+
+
+
