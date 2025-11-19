@@ -1,0 +1,17 @@
+{
+  "initial_balance": 100000,
+  "rebalance_frequency": 20,
+  "asset_weights": {
+    "SPY": 0.6,
+    "AGG": 0.3,
+    "CASH": 0.1
+  },
+  "contribution_plan": {
+    "annual_contribution": 12000,
+    "frequency": 252
+  },
+  "strategy": {
+    "name": "fixed"
+  }
+}
+

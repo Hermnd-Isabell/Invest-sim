@@ -1,0 +1,13 @@
+# Invest Sim - 基础依赖
+# 从 pyproject.toml 自动生成
+# 安装方式: pip install -r requirements.txt
+
+pydantic>=2.5
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8
+rich>=13.6
+
+
+
+

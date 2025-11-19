@@ -1,0 +1,63 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: 当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "python": "${workspaceFolder}/invest-sim/.venv/Scripts/python.exe",
+            "cwd": "${workspaceFolder}/invest-sim"
+        },
+        {
+            "name": "invest-sim: Forward Simulation",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "invest_sim",
+            "args": [
+                "forward",
+                "--config",
+                "examples/balanced.json"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "python": "${workspaceFolder}/invest-sim/.venv/Scripts/python.exe",
+            "cwd": "${workspaceFolder}/invest-sim"
+        },
+        {
+            "name": "invest-sim: Backtest",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "invest_sim",
+            "args": [
+                "backtest",
+                "--config",
+                "examples/backtest_balanced.json",
+                "--data",
+                "data/sample_prices.csv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "python": "${workspaceFolder}/invest-sim/.venv/Scripts/python.exe",
+            "cwd": "${workspaceFolder}/invest-sim"
+        },
+        {
+            "name": "Python: Pytest",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "tests",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "python": "${workspaceFolder}/invest-sim/.venv/Scripts/python.exe",
+            "cwd": "${workspaceFolder}/invest-sim"
+        }
+    ]
+}
+
+

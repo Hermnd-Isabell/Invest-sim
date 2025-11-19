@@ -1,0 +1,20 @@
+{
+  "initial_balance": 100000,
+  "rebalance_frequency": 21,
+  "asset_weights": {
+    "股票_大盘": 0.30,
+    "股票_成长": 0.50,
+    "基金_混合": 0.15,
+    "现金": 0.05
+  },
+  "contribution_plan": {
+    "annual_contribution": 0,
+    "frequency": 12
+  },
+  "strategy": {
+    "name": "fixed",
+    "target_volatility": null,
+    "rebalance_threshold": 0.05
+  }
+}
+
