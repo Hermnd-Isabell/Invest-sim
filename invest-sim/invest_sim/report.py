@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,6 +22,7 @@ def render_forward_summary(
 ) -> None:
     """渲染前瞻性模拟结果的统计摘要。"""
 
+    console.print(_describe_input_model(result.input_model))
     summary = _build_forward_summary_table(result, risk_level=risk_level)
     console.print(summary)
 
@@ -59,6 +60,17 @@ def _build_forward_summary_table(result: ForwardSimulationResult, *, risk_level:
     for key, value in risk_rows.items():
         table.add_row(key, f"{value:,.0f}")
     return table
+
+
+def _describe_input_model(model: Optional[dict[str, Any]]) -> str:
+    if not model:
+        return "本次 Monte Carlo 模拟基于默认正态分布输入模型计算 VaR / CVaR。"
+    params = model.get("params", {})
+    params_text = ", ".join(f"{key}={value}" for key, value in params.items()) or "无"
+    return (
+        f"本次 Monte Carlo 模拟基于 {model.get('dist_name', 'normal')} 分布"
+        f"（参数：{params_text}）构建输入模型，得到以下 VaR/CVaR 结果。"
+    )
 
 
 def render_backtest_summary(

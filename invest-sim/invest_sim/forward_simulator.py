@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
+from .backend.input_modeling.distributions import generate_returns
+from .backend.risk.risk_metrics import summarize_tail_risk
 from .data_models import SimulationConfig
 from .strategies import Strategy, build_strategy
 
@@ -18,6 +20,7 @@ class ForwardSimulationResult:
     trajectories: np.ndarray  # shape: (num_trials, num_periods + 1)
     weights_history: np.ndarray  # shape: (num_periods + 1, num_assets)
     config: SimulationConfig
+    input_model: dict[str, Any] | None = None
 
     def quantiles(self, probs: Sequence[float] = (0.1, 0.5, 0.9)) -> pd.DataFrame:
         probs_arr = np.array(probs)
@@ -61,22 +64,15 @@ class ForwardSimulationResult:
         if not 0 < level < 1:
             raise ValueError("风险水平必须在 (0, 1) 之间")
 
-        final_values = self.final_distribution()
+        final_values = self.final_distribution().to_numpy()
         initial = float(self.config.initial_balance)
-
-        threshold = float(final_values.quantile(level))
-        tail_values = final_values[final_values <= threshold]
-        expected_tail = float(tail_values.mean()) if not tail_values.empty else threshold
-
-        value_at_risk = max(0.0, initial - threshold)
-        conditional_value_at_risk = max(0.0, initial - expected_tail)
-
+        tail_risk = summarize_tail_risk(final_values, initial_balance=initial, level=level)
         max_drawdown = float(self.max_drawdown_series().median())
 
         return {
-            "value_at_risk": value_at_risk,
-            "conditional_value_at_risk": conditional_value_at_risk,
+            **tail_risk,
             "max_drawdown": max_drawdown,
+            "input_model": self.input_model,
         }
 
 
@@ -91,12 +87,14 @@ class ForwardSimulator:
         *,
         strategy: Optional[Strategy] = None,
         seed: Optional[int] = None,
+        input_model: dict[str, Any] | None = None,
     ) -> None:
         self.config = config
         self.strategy = strategy or build_strategy(config)
         self.rng = np.random.default_rng(seed)
         self.assets = config.assets
         self.num_assets = len(self.assets)
+        self.input_model = input_model
         self.monthly_return_mean = self._annual_to_periodic(
             np.array([asset.expected_return for asset in self.assets], dtype=float)
         )
@@ -126,11 +124,16 @@ class ForwardSimulator:
                     periodic_contribution * weights
                 )  # 假设按目标权重分摊投入
 
-            asset_returns = self.rng.normal(
-                loc=self.monthly_return_mean,
-                scale=self.monthly_volatility,
-                size=(self.config.num_trials, self.num_assets),
-            )
+            # 为每个资产生成收益
+            asset_returns = np.zeros((self.config.num_trials, self.num_assets))
+            for i in range(self.num_assets):
+                dist_name, dist_params = self._distribution_for_asset(i)
+                asset_returns[:, i] = generate_returns(
+                    dist_name=dist_name,
+                    size=self.config.num_trials,
+                    params=dist_params,
+                    rng=self.rng,
+                )
             asset_values *= 1.0 + asset_returns
 
             portfolio_values = asset_values.sum(axis=1)
@@ -152,9 +155,60 @@ class ForwardSimulator:
 
             weights_history[step] = weights
 
-        return ForwardSimulationResult(timeline, trajectories, weights_history, self.config)
+        sanitized_model = self._sanitize_input_model(self.input_model)
+        return ForwardSimulationResult(
+            timeline, trajectories, weights_history, self.config, sanitized_model
+        )
 
     def _annual_to_periodic(self, annual_returns: np.ndarray) -> np.ndarray:
         """将年化收益转为月收益。"""
         return np.power(1.0 + annual_returns, 1 / self.PERIODS_PER_YEAR) - 1.0
+
+    def _sanitize_input_model(self, model: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not model:
+            return None
+        dist_name = model.get("dist_name", "normal")
+        raw_params = model.get("params") or {}
+        cleaned_params: dict[str, Any] = {}
+        for key, value in raw_params.items():
+            if isinstance(value, np.ndarray):
+                cleaned_params[key] = value.tolist()
+            elif isinstance(value, (np.generic,)):
+                cleaned_params[key] = value.item()
+            else:
+                cleaned_params[key] = value
+        return {"dist_name": dist_name, "params": cleaned_params}
+
+    def _distribution_for_asset(self, asset_index: int) -> tuple[str, dict[str, float]]:
+        """根据输入模型解析单个资产的分布配置。"""
+        base_params: dict[str, float] = {
+            "mean": float(self.monthly_return_mean[asset_index]),
+            "vol": float(self.monthly_volatility[asset_index]),
+        }
+        if not self.input_model:
+            return "normal", base_params
+
+        dist_name = self.input_model.get("dist_name", "normal")
+        user_params = self.input_model.get("params") or {}
+        resolved_params = base_params.copy()
+        for key, value in user_params.items():
+            resolved_params[key] = self._select_param_value(value, asset_index)
+        return dist_name, resolved_params
+
+    def _select_param_value(self, value: Any, asset_index: int) -> float:
+        """支持列表/字典形式的参数选择，方便针对资产自定义。"""
+        if isinstance(value, dict):
+            asset_name = self.assets[asset_index].name
+            if asset_name not in value:
+                raise ValueError(
+                    f"输入模型缺少资产 {asset_name} 的参数配置"
+                )
+            return float(value[asset_name])
+        if isinstance(value, (list, tuple, np.ndarray)):
+            if len(value) != self.num_assets:
+                raise ValueError(
+                    "输入模型的序列参数长度必须等于资产数量"
+                )
+            return float(value[asset_index])
+        return float(value)
 

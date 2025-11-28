@@ -15,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from invest_sim.backend.input_modeling.distributions import generate_returns
+
 
 def generate_asset_prices(
     name: str,
@@ -53,10 +55,13 @@ def generate_asset_prices(
 
     # 生成随机收益率（几何布朗运动）
     # 使用对数收益率，然后转换为价格
-    log_returns = np.random.normal(
-        loc=daily_return - 0.5 * daily_volatility**2,  # 调整漂移项
-        scale=daily_volatility,
+    log_returns = generate_returns(
+        dist_name="normal",
         size=n_days,
+        params={
+            "mean": daily_return - 0.5 * daily_volatility**2,  # 调整漂移项
+            "vol": daily_volatility,
+        },
     )
 
     # 转换为价格序列
