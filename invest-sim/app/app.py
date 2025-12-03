@@ -106,7 +106,7 @@ st.markdown(f"""
             border-color: {COLORS['gold']};
             box-shadow: none;
         }}
-
+        
         /* 按钮美化 */
         .stButton button {{
             background: transparent;
@@ -629,20 +629,24 @@ mode = st.sidebar.radio(
 )
 
 if mode != "DERIVATIVES LAB (Options / Margin)":
-    st.sidebar.markdown("### STRATEGY CONFIG")
+st.sidebar.markdown("### STRATEGY CONFIG")
     strategy_name_global = st.sidebar.selectbox("Algorithm", InvestSimBridge.get_available_strategies())
 
-    # 动态参数
-    strategy_params = {}
+# 动态参数
+strategy_params = {}
     if strategy_name_global == "Target Risk":
-        strategy_params["target_vol"] = st.sidebar.slider("Target Volatility", 0.05, 0.4, 0.15, 0.01)
+    strategy_params["target_vol"] = st.sidebar.slider("Target Volatility", 0.05, 0.4, 0.15, 0.01)
     elif strategy_name_global == "Adaptive Rebalance":
-        strategy_params["threshold"] = st.sidebar.slider("Rebalance Threshold", 0.01, 0.1, 0.05)
+    strategy_params["threshold"] = st.sidebar.slider("Rebalance Threshold", 0.01, 0.1, 0.05)
+else:
+    # 在 Derivatives Lab 模式下，不需要全局策略参数
+    strategy_name_global = "DerivativesLab"
+    strategy_params = {}
 
-    st.sidebar.markdown("### PORTFOLIO SETTINGS")
-    initial_capital = st.sidebar.number_input("Initial Capital", value=100000, step=10000)
-    leverage = st.sidebar.slider("Leverage Ratio", 0.5, 3.0, 1.0, 0.1)
-    risk_free = st.sidebar.number_input("Risk Free Rate", 0.0, 0.1, 0.02, 0.005)
+st.sidebar.markdown("### PORTFOLIO SETTINGS")
+initial_capital = st.sidebar.number_input("Initial Capital", value=100000, step=10000)
+leverage = st.sidebar.slider("Leverage Ratio", 0.5, 3.0, 1.0, 0.1)
+risk_free = st.sidebar.number_input("Risk Free Rate", 0.0, 0.1, 0.02, 0.005)
 
 st.sidebar.markdown("---")
 st.sidebar.caption(f"System Status: ONLINE\nBackend: v2.4.0 (Bridge)")
@@ -653,9 +657,13 @@ st.sidebar.caption(f"System Status: ONLINE\nBackend: v2.4.0 (Bridge)")
 
 # 页面标题
 if mode != "DERIVATIVES LAB (Options / Margin)":
-    st.title(mode.split(" ")[0])
-    st.markdown(f"Strategy: <span style='color:{COLORS['gold']}'>{strategy_name_global}</span> &nbsp;|&nbsp; Leverage: <span style='color:{COLORS['text_main']}'>{leverage}x</span>", unsafe_allow_html=True)
-    st.markdown("###") # Spacer
+st.title(mode.split(" ")[0])
+    st.markdown(
+        f"Strategy: <span style='color:{COLORS['gold']}'>{strategy_name_global}</span> "
+        f"&nbsp;|&nbsp; Leverage: <span style='color:{COLORS['text_main']}'>{leverage}x</span>",
+        unsafe_allow_html=True,
+    )
+st.markdown("###")  # Spacer
 
 # ------------------------------------------
 # SCENARIO A: 历史回测 (Backtest)
@@ -708,13 +716,13 @@ if mode == "BACKTEST (Historical)":
         with col_main:
             st.plotly_chart(plot_nav_curve(res.df), use_container_width=True)
         with col_side:
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
                 x=res.df.index, y=res.df['Drawdown'],
                 fill='tozeroy', line=dict(color=COLORS['red'], width=1),
-                fillcolor='rgba(248, 81, 73, 0.1)'
+                    fillcolor='rgba(248, 81, 73, 0.1)'
             ))
-            fig_dd.update_layout(**get_chart_layout(200))
+        fig_dd.update_layout(**get_chart_layout(200))
             fig_dd.update_layout(title="Drawdown", yaxis=dict(showgrid=False, tickformat=".0%"))
             st.plotly_chart(fig_dd, use_container_width=True)
 
