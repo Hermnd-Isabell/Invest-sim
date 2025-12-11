@@ -68,11 +68,12 @@ def bs_vega(S, K, T, r, sigma):
 
 
 class OptionLeg:
-    def __init__(self, option_type, side, strike, contract_size=100):
+    def __init__(self, option_type, side, strike, contract_size=100, symbol=None):
         self.option_type = option_type.lower()  # "call" / "put"
         self.side = side.lower()                # "long" / "short"
         self.strike = float(strike)
         self.contract_size = float(contract_size)
+        self.symbol = symbol                    # Real contract symbol (optional)
 
     @property
     def multiplier(self) -> float:
@@ -100,7 +101,7 @@ class OptionMarginSimulator:
         daily_return_mean,
         daily_return_vol,
         reference_equity,
-        seed: int = 12345,
+        seed: int | None = None,
         enable_hedge: bool = False,
         hedge_frequency: int = 1,
         hedge_threshold: float | None = None,
@@ -130,7 +131,7 @@ class OptionMarginSimulator:
         self.daily_return_mean = float(daily_return_mean)
         self.daily_return_vol = float(daily_return_vol)
         self.reference_equity = float(reference_equity)
-        self.seed = int(seed)
+        self.seed = None if seed is None else int(seed)
 
         self.enable_hedge = bool(enable_hedge)
         self.hedge_frequency = max(1, int(hedge_frequency))
@@ -142,6 +143,12 @@ class OptionMarginSimulator:
         self.total_contract_exposure = max(1e-8, sum(abs(leg.contract_size) for leg in self.legs))
 
     def _rng(self):
+        """
+        Use a non-deterministic RNG unless a seed is explicitly provided.
+        This avoids a fixed path when the caller does not request reproducibility.
+        """
+        if self.seed is None:
+            return np.random.default_rng()
         return np.random.default_rng(self.seed)
 
     def _margin_requirements_for_leg(self, premium: float, spot: float, leg: OptionLeg) -> float:
@@ -167,12 +174,26 @@ class OptionMarginSimulator:
     # ------------------------------------------------------------------
     # Single-path simulation
     # ------------------------------------------------------------------
-    def run_single_path(self, n_days: int):
+    def run_single_path(self, n_days: int, spot_series=None):
+        """
+        Run a single-path simulation.
+        If spot_series is provided (>=2 points), use it directly as the spot path.
+        Otherwise simulate a path using the configured drift/vol and a non-fixed RNG.
+        """
         steps = int(n_days)
-        rng = self._rng()
+        use_real_path = spot_series is not None and len(spot_series) >= 2
 
-        spot_path = np.zeros(steps + 1)
-        spot_path[0] = self.spot0
+        if use_real_path:
+            steps = min(steps, len(spot_series) - 1)
+            spot_path = np.asarray(spot_series, dtype=float)[: steps + 1]
+        else:
+            rng = self._rng()
+            spot_path = np.zeros(steps + 1)
+            spot_path[0] = self.spot0
+            for t in range(1, steps + 1):
+                rtn = rng.normal(self.daily_return_mean, self.daily_return_vol)
+                spot_path[t] = max(spot_path[t - 1] * (1.0 + rtn), 1e-8)
+
         option_price_path = np.zeros(steps + 1)
         margin_path = np.zeros(steps + 1)
         equity_path = np.zeros(steps + 1)
@@ -180,11 +201,6 @@ class OptionMarginSimulator:
         margin_ratio_path = np.full(steps + 1, np.inf)
         hedge_units = np.zeros(steps + 1)
         hedge_pnl = np.zeros(steps + 1)
-
-        # Generate spot path
-        for t in range(1, steps + 1):
-            rtn = rng.normal(self.daily_return_mean, self.daily_return_vol)
-            spot_path[t] = max(spot_path[t - 1] * (1.0 + rtn), 1e-8)
 
         # Price & margin per day
         for t in range(steps + 1):
@@ -375,4 +391,171 @@ class OptionMarginSimulator:
             "hedge_pnl_paths": hedge_pnl,
         }
 
+    # ------------------------------------------------------------------
+    # Historical replay simulation
+    # ------------------------------------------------------------------
+    def run_historical_replay(
+        self,
+        spot_series,
+        option_price_series=None,
+        use_market_option_price: bool = False,
+    ) -> dict:
+        """
+        Run a single-path margin & P&L simulation using a REAL historical
+        spot price path (e.g., 50ETF close prices).
+
+        Parameters
+        ----------
+        spot_series : 1D array-like
+            Sequence of spot prices over time (e.g., daily close).
+        option_price_series : 1D array-like, optional
+            If provided and use_market_option_price=True, use this as the
+            option price at each step instead of BS re-pricing.
+        use_market_option_price : bool, default False
+            If True and option_price_series is not None, use the historical
+            option prices directly; otherwise, use BS to reprice options.
+
+        Returns
+        -------
+        dict
+            Dictionary with the same keys as run_single_path:
+            - spot_path: array of spot prices
+            - option_price_path: array of total option values
+            - equity_path: array of equity values
+            - margin_path: array of margin requirements
+            - margin_ratio_path: array of margin ratios
+            - liquidation_day: int or None
+            - hedge_units_path: array of hedge units
+            - hedge_pnl_path: array of hedge P&L
+        """
+        # Convert input to numpy arrays
+        spot_path = np.asarray(spot_series, dtype=float)
+        T = len(spot_path) - 1  # T is the number of steps (0 to T inclusive)
+        
+        # Ensure spot prices are positive
+        spot_path = np.maximum(spot_path, 1e-8)
+        
+        # Handle option_price_series if provided
+        if option_price_series is not None:
+            option_price_series = np.asarray(option_price_series, dtype=float)
+            # Truncate if longer, pad with NaN if shorter (will handle gracefully)
+            if len(option_price_series) < len(spot_path):
+                padded = np.full(len(spot_path), np.nan)
+                padded[:len(option_price_series)] = option_price_series
+                option_price_series = padded
+            elif len(option_price_series) > len(spot_path):
+                option_price_series = option_price_series[:len(spot_path)]
+        else:
+            option_price_series = None
+
+        # Initialize arrays (same structure as run_single_path)
+        option_price_path = np.zeros(T + 1)
+        margin_path = np.zeros(T + 1)
+        equity_path = np.zeros(T + 1)
+        equity_path[0] = self.reference_equity
+        margin_ratio_path = np.full(T + 1, np.inf)
+        hedge_units = np.zeros(T + 1)
+        hedge_pnl = np.zeros(T + 1)
+
+        # Price & margin per day
+        for t in range(T + 1):
+            days_left = max(self.days_to_maturity - t, 0)
+            
+            # Determine volatility (for now, use constant implied_vol)
+            # Dynamic vol logic can be added later if needed
+            sigma_t = self.implied_vol
+
+            # Determine if we should use market option price
+            use_market_price = (
+                use_market_option_price 
+                and option_price_series is not None
+                and not np.isnan(option_price_series[t])
+                and option_price_series[t] >= 0
+            )
+            
+            # For single-leg strategies, market price can be used directly
+            # For multi-leg, market price represents total portfolio value,
+            # but we need per-leg prices for margin calculation, so we fall back to BS
+            can_use_market_price = use_market_price and len(self.legs) == 1
+
+            # Calculate total option value and margin
+            total_price = 0.0
+            total_margin = 0.0
+            
+            for leg in self.legs:
+                if can_use_market_price:
+                    # Single leg: market price is total value, convert to per-unit
+                    leg_price_val = option_price_series[t] / abs(leg.contract_size)
+                else:
+                    # Use BS pricing (default, or fallback for multi-leg)
+                        leg_price_val = self._leg_price(leg, spot_path[t], days_left, sigma_t)
+                
+                total_price += leg.multiplier * leg_price_val * leg.contract_size
+                if leg.side == "short":
+                    total_margin += self._margin_requirements_for_leg(leg_price_val, spot_path[t], leg)
+            
+            option_price_path[t] = total_price
+            margin_path[t] = total_margin
+
+        # Hedging, equity, margin ratio
+        liquidation_day = None
+        for t in range(1, T + 1):
+            # Use constant volatility for now (can add dynamic_vol later)
+            sigma_t = self.implied_vol
+            
+            days_left = max(self.days_to_maturity - t, 0)
+            
+            # Calculate total delta
+            total_delta = 0.0
+            for leg in self.legs:
+                leg_delta = self._leg_delta(leg, spot_path[t], days_left, sigma_t)
+                total_delta += leg.multiplier * leg_delta * leg.contract_size
+
+            # Update hedge units
+            if not self.enable_hedge:
+                hedge_units[t] = hedge_units[t - 1]
+            else:
+                should_hedge = (t % self.hedge_frequency == 0)
+                if self.hedge_threshold is not None:
+                    delta_per_unit = total_delta / self.total_contract_exposure
+                    should_hedge = should_hedge or (abs(delta_per_unit) > self.hedge_threshold)
+                if should_hedge:
+                    hedge_units[t] = -total_delta
+                else:
+                    hedge_units[t] = hedge_units[t - 1]
+
+            # Calculate hedge P&L
+            hedge_pnl[t] = hedge_units[t - 1] * (spot_path[t] - spot_path[t - 1])
+            
+            # Calculate option P&L
+            pnl_option = option_price_path[t] - option_price_path[t - 1]
+            
+            # Update equity
+            equity_path[t] = equity_path[t - 1] + pnl_option + hedge_pnl[t]
+
+            # Check liquidation
+            if self.has_short_legs and margin_path[t] > 0:
+                margin_ratio_path[t] = equity_path[t] / max(margin_path[t], 1e-8)
+                if liquidation_day is None and margin_ratio_path[t] < self.maintenance_margin_rate:
+                    liquidation_day = t
+                    # Freeze values after liquidation
+                    equity_path[t:] = equity_path[t]
+                    margin_path[t:] = margin_path[t]
+                    margin_ratio_path[t:] = margin_ratio_path[t]
+                    hedge_units[t:] = hedge_units[t]
+                    hedge_pnl[t:] = hedge_pnl[t]
+                    break
+            else:
+                margin_ratio_path[t] = np.inf
+
+        return {
+            "spot_path": spot_path,
+            "option_price_path": option_price_path,
+            "equity_path": equity_path,
+            "margin_path": margin_path,
+            "margin_ratio_path": margin_ratio_path,
+            "liquidation_day": liquidation_day,
+            "hedge_units_path": hedge_units,
+            "hedge_pnl_path": hedge_pnl,
+        }
 
