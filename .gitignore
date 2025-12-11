@@ -48,6 +48,7 @@ htmlcov/
 
 # Project specific
 invest-sim/output/
+invest-sim/data/50ETF/
 *.log
 *.csv
 !invest-sim/data/sample_prices.csv
