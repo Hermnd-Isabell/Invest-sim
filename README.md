@@ -10,6 +10,17 @@ Invest Sim 是一个集 **前瞻性 Monte Carlo 模拟**、**历史回测**、**
 - **可解释输出**：`report.py` 将结果转为 Rich 表格/Matplotlib 图；`output/` 收集的图片和 CSV 可直接分享。
 - **可视化体验**：`app/app.py` 基于 Streamlit，提供面向高净值客户的深色系交互面板。
 
+## 🆕 最新进展（50ETF 期权）
+
+- **真实 50ETF 合约回放**：仅展示/使用具备真实价格的可回放合约（至少 1 条非 NaN 收盘价），防止“空合约”误选。
+- **下拉框一致性**：到期日/行权价直接来源于可回放合约集，避免缓存导致的错误选项与误配合约。
+- **策略腿符号正确性**：`OptionLeg` 使用人类可读 `symbol`，价格查询走 `order_book_id`，确保定价与展示一致。
+- **历史回放校验**：在运行前强制检查所选合约的历史价格列非空，否则给出清晰错误提示。
+- **缓存与性能**：`OptionDataStore` 单例缓存，过期日/行权价/HV/IV 结果缓存，大幅减少重复加载与计算。
+- **调试降噪**：移除多余的 `print`/`st.write` 调试输出，保留必要的错误与提示信息。
+
+> 数据未随仓库提交，需按下方“复现步骤”放置到 `invest-sim/data/50ETF/`。数据结构与字段详见 `50ETF_DATA_README.md`。
+
 ## 🧱 模块与代码职责
 
 | 模块 | 用途 | 实现要点 |
@@ -96,6 +107,14 @@ streamlit run app.py
 ```
 
 选择不同策略和杠杆，仪表板会实时刷新历史/未来曲线、风险指标及 Monte Carlo 区间。
+
+### 复现 50ETF 期权功能（含历史回放）
+
+1. 准备数据（本仓库未包含）：将 `Filtered_OptionInstruments_510050.pkl` 与 `Filtered_OptionPrice_2020_2022.feather` 放入 `invest-sim/data/50ETF/` 目录，字段说明见 `50ETF_DATA_README.md`。
+2. 安装依赖：在仓库根目录执行 `pip install -r requirements-dev.txt`，再 `pip install -e .`。
+3. 运行 UI：`cd app && streamlit run app.py`，进入 Market View / Derivatives Lab。
+4. 选择合约：到期日、Call/Put、行权价下拉框仅展示可回放合约；若选中无价格的合约会提示错误。
+5. 历史回放：选择“Historical Replay (50ETF)”即可复用真实价格路径；若无数据会自动阻止运行并提示。
 
 ## 🧾 配置文件详解
 
